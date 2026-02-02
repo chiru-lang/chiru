@@ -1,0 +1,13 @@
+function payment_operation {
+
+    lifetime payment_call bound to payment_operation
+
+    unsafe {
+        assume "HSM returned a valid pointer"
+
+        region external hsm_memory
+        let key in hsm_memory
+    }
+
+    capability SharedRead key during payment_call
+}
