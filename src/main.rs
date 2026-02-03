@@ -17,8 +17,27 @@ use exec::{execute, ExecContext};
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    if args.len() == 2 {
+        match args[1].as_str() {
+            "--version" => {
+                println!("chiru {}", env!("CARGO_PKG_VERSION"));
+                process::exit(0);
+            }
+            "--help" | "-h" => {
+                println!("Chiru — verification-first systems language");
+                println!();
+                println!("Usage:");
+                println!("  chiru <file.chiru>     Verify a Chiru file");
+                println!("  chiru --version        Show version");
+                println!("  chiru --help           Show this help");
+                process::exit(0);
+            }
+            _ => {}
+        }
+    }
+
     if args.len() != 2 {
-        eprintln!("Usage: chiru check <file.chiru>");
+        eprintln!("Usage: chiru <file.chiru>");
         process::exit(3);
     }
 
@@ -47,11 +66,9 @@ fn main() {
     }
 
     let report = SafetyReport::generate(&state);
-    report.print();
+    report.print(&state);
 
     let code = report.exit_code();
-        eprintln!("DEBUG: exit code = {}", code);
-        std::process::exit(code);
-
-
+    eprintln!("DEBUG: exit code = {}", code);
+    process::exit(code);
 }

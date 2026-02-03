@@ -1,4 +1,5 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+
 pub enum AstNode {
     Function { name: String, body: Vec<AstNode> },
     Unsafe { body: Vec<AstNode> },
@@ -15,4 +16,8 @@ pub enum AstNode {
 
     Drop { value: String },
     Assume { text: String },
+
+    PhaseDecl {
+        name: String,
+    },
 }

@@ -25,6 +25,11 @@ pub struct SafetyReport {
     pub summary: Summary,
     pub unsafe_assumptions: Vec<UnsafeAssumptionNode>,
     pub values: Vec<ValueSummary>,
+    ownership_ok: bool,
+    lifetimes_ok: bool,
+    capabilities_ok: bool,
+    destruction_ok: bool,
+    has_unsafe_assumptions: bool,
 }
 
 #[derive(Serialize)]
@@ -75,6 +80,13 @@ impl SafetyReport {
             "SAFE_IF_ASSUMPTIONS_HOLD"
         };
 
+         let ownership_ok = true; // enforced during execution
+        let lifetimes_ok = state.graph.lifetimes.values().all(|l| !l.active);
+        let capabilities_ok = true; // conflicts rejected at creation
+        let destruction_ok = true; // double-drops rejected
+
+        let has_unsafe_assumptions = !state.graph.unsafe_assumptions.is_empty();
+
         SafetyReport {
             verdict: verdict.to_string(),
             summary: Summary {
@@ -85,62 +97,96 @@ impl SafetyReport {
             },
             unsafe_assumptions,
             values,
+            ownership_ok,
+            lifetimes_ok,
+            capabilities_ok,
+            destruction_ok,
+            has_unsafe_assumptions,
         }
     }
 
     /// Print the human-readable Safety Report
-    pub fn print(&self) {
+     pub fn print(&self, state: &InterpreterState) {
         println!("Chiru Safety Report");
         println!("==================\n");
 
         println!("Summary");
         println!("-------");
-        println!("Ownership:     {}", self.summary.ownership);
-        println!("Lifetimes:     {}", self.summary.lifetimes);
-        println!("Capabilities:  {}", self.summary.capabilities);
-        println!("Destruction:   {}\n", self.summary.destruction);
+        println!("Ownership:     {}", if self.ownership_ok { "VERIFIED" } else { "FAILED" });
+        println!("Lifetimes:     {}", if self.lifetimes_ok { "VERIFIED" } else { "FAILED" });
+        println!("Capabilities:  {}", if self.capabilities_ok { "VERIFIED" } else { "FAILED" });
+        println!("Destruction:   {}", if self.destruction_ok { "VERIFIED" } else { "FAILED" });
+        println!();
 
-        if !self.unsafe_assumptions.is_empty() {
-            println!("Unsafe Assumptions");
-            println!("------------------");
+        // === PHASES ===
+        println!("Phases");
+        println!("------");
+        for phase in &state.phases {
+            let marker = if Some(phase.id) == state.current_phase {
+                " (active)"
+            } else {
+                ""
+            };
+            println!("[{}] {}{}", phase.id, phase.name, marker);
+        }
+        println!();
 
-            for ua in &self.unsafe_assumptions {
+        // === UNSAFE ASSUMPTIONS ===
+        println!("Unsafe Assumptions");
+        println!("------------------");
+        if state.graph.unsafe_assumptions.is_empty() {
+            println!("None");
+        } else {
+            for ua in state.graph.unsafe_assumptions.values() {
+                let phase_name = &state.phases[ua.phase].name;
                 println!(
                     "[UA-{:03}] {}",
-                    ua.id, ua.description
+                    ua.id,
+                    ua.description
                 );
+                println!("  Phase: {}", phase_name);
                 println!("  Scope: {}", ua.scope);
-                println!("  Affects: {:?}\n", ua.affected_values);
+                println!("  Affects: {:?}", ua.affected_values);
             }
         }
+        println!();
 
+        // === VALUES ===
         println!("Values");
         println!("------");
-        for v in &self.values {
-            println!("{}: {} ({})", v.id, v.origin, v.state);
+        for value in state.graph.values.values() {
+            let status = if value.alive {
+                match value.origin {
+                    ValueOrigin::Safe => "SAFE",
+                    ValueOrigin::Unsafe => "UNSAFE",
+                }
+            } else {
+                "DESTROYED"
+            };
+
+            println!("{}: {}", value.id, status);
         }
+        println!();
 
-        println!("\nVerdict");
+        // === VERDICT ===
+        println!("Verdict");
         println!("-------");
-        println!("{}", self.verdict);
+        if !self.ownership_ok || !self.lifetimes_ok || !self.capabilities_ok || !self.destruction_ok {
+            println!("UNSAFE");
+        } else if self.has_unsafe_assumptions {
+            println!("SAFE_IF_ASSUMPTIONS_HOLD");
+        } else {
+            println!("SAFE");
+        }
     }
 
-    /// Print JSON Safety Report (CI / machine use)
-    pub fn print_json(&self) {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(self)
-                .expect("JSON serialization failed")
-        );
-    }
-}
-
-impl SafetyReport {
     pub fn exit_code(&self) -> i32 {
-        match self.verdict.as_str() {
-            "SAFE" => 0,
-            "SAFE_IF_ASSUMPTIONS_HOLD" => 1,
-            _ => 2,
+        if !self.ownership_ok || !self.lifetimes_ok || !self.capabilities_ok || !self.destruction_ok {
+            2
+        } else if self.has_unsafe_assumptions {
+            1
+        } else {
+            0
         }
     }
 }

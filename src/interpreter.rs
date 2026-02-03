@@ -4,6 +4,36 @@ use std::collections::HashMap;
 use crate::scope::{ScopeKind, ScopeNode};
 use crate::graph::{RegionNode, RegionKind};
 
+pub type PhaseId = usize;
+
+#[derive(Debug)]
+pub struct Phase {
+    pub id: PhaseId,
+    pub name: String,
+    pub order: usize,
+}
+
+pub struct Capability {
+    pub value_id: ValueId,
+    pub kind: CapabilityKind,
+    pub phase: PhaseId,
+    pub active: bool,
+}
+
+pub struct Lifetime {
+    pub id: LifetimeId,
+    pub phase: PhaseId,
+    pub active: bool,
+}
+
+pub struct UnsafeAssumption {
+    pub id: String,
+    pub phase: PhaseId,
+    pub scope: ScopeId,
+    pub values: Vec<ValueId>,
+}
+
+
 
 pub struct InterpreterState {
     pub graph: ConstraintGraph,
@@ -16,7 +46,10 @@ pub struct InterpreterState {
     next_capability_id: CapabilityId,
     next_scope_id: ScopeId,
     next_assumption_id: AssumptionId,
+    pub current_phase: Option<PhaseId>,
+    pub phases: Vec<Phase>,
 }
+
 impl InterpreterState {
     pub fn new() -> Self {
         InterpreterState {
@@ -36,85 +69,56 @@ impl InterpreterState {
             next_capability_id: 1,
             next_scope_id: 1,
             next_assumption_id: 1,
+            phases: Vec::new(),
+            current_phase: None,
         }
     }
+
+    // =====================
+    // PHASE MANAGEMENT
+    // =====================
+
+    pub fn declare_phase(&mut self, name: String) -> Result<PhaseId, String> {
+        if self.phases.iter().any(|p| p.name == name) {
+            return Err(format!("Duplicate phase declaration: {}", name));
+        }
+
+        let id = self.phases.len();
+        self.phases.push(Phase {
+            id,
+            name,
+            order: id,
+        });
+
+        if self.current_phase.is_none() {
+            self.current_phase = Some(id);
+        }
+
+        Ok(id)
+    }
+
+    pub fn current_phase(&self) -> PhaseId {
+        self.current_phase.expect("No active phase")
+    }
+
+    pub fn current_phase_name(&self) -> &str {
+        &self.phases[self.current_phase()].name
+    }
+
+    // =====================
+    // SCOPE MANAGEMENT
+    // =====================
 
     fn fresh_scope_id(&mut self) -> ScopeId {
-    let id = self.next_scope_id;
-    self.next_scope_id += 1;
-    id
-}
-
-pub fn current_scope(&self) -> ScopeId {
-    *self.scope_stack.last().expect("No active scope")
-}
-
-fn fresh_region_id(&mut self) -> RegionId {
-    let id = self.next_region_id;
-    self.next_region_id += 1;
-    id
-}
-
-fn fresh_value_id(&mut self) -> ValueId {
-    let id = self.next_value_id;
-    self.next_value_id += 1;
-    id
-}
-
-fn values_owned_by_scope(&self, scope_id: ScopeId) -> Vec<ValueId> {
-    self.graph
-        .ownership_edges
-        .iter()
-        .filter(|edge| edge.owner == scope_id)
-        .map(|edge| edge.value)
-        .collect()
-}
-
-fn fresh_lifetime_id(&mut self) -> LifetimeId {
-    let id = self.next_lifetime_id;
-    self.next_lifetime_id += 1;
-    id
-}
-
-fn fresh_capability_id(&mut self) -> CapabilityId {
-    let id = self.next_capability_id;
-    self.next_capability_id += 1;
-    id
-}
-
-fn is_owned_by_scope(&self, value: ValueId, scope: ScopeId) -> bool {
-    self.graph.ownership_edges.iter().any(|edge| {
-        edge.value == value && edge.owner == scope
-    })
-}
-
-fn is_in_unsafe_scope(&self) -> bool {
-    self.scope_stack.iter().any(|scope_id| {
-        self.scopes
-            .get(scope_id)
-            .map(|s| matches!(s.kind, ScopeKind::Unsafe))
-            .unwrap_or(false)
-    })
-}
-
-fn effective_owner_scope(&self) -> ScopeId {
-    // Walk the scope stack from top to bottom
-    // Return the first NON-unsafe scope
-    for scope_id in self.scope_stack.iter().rev() {
-        let scope = self.scopes.get(scope_id).unwrap();
-        if !matches!(scope.kind, ScopeKind::Unsafe) {
-            return *scope_id;
-        }
+        let id = self.next_scope_id;
+        self.next_scope_id += 1;
+        id
     }
-    panic!("No non-unsafe scope found for ownership");
-}
 
+    pub fn current_scope(&self) -> ScopeId {
+        *self.scope_stack.last().expect("No active scope")
+    }
 
-
-}
-
-
-impl InterpreterState {
     pub fn enter_scope(&mut self, kind: ScopeKind) -> ScopeId {
         let id = self.fresh_scope_id();
         let parent = self.scope_stack.last().copied();
@@ -128,44 +132,64 @@ impl InterpreterState {
 
         self.scopes.insert(id, scope);
         self.scope_stack.push(id);
-
         id
     }
-}
 
-impl InterpreterState {
+    pub fn exit_scope(&mut self) -> Result<(), String> {
+        let scope_id = self.scope_stack.pop()
+            .ok_or("Attempted to exit scope, but no scope is active")?;
+
+        // Expire lifetimes in this scope
+        for lifetime in self.graph.lifetimes.values_mut() {
+            if lifetime.scope == scope_id {
+                lifetime.active = false;
+            }
+        }
+
+        // Expire capabilities in this scope
+        self.graph.capabilities.retain(|_, cap| cap.scope != scope_id);
+
+        // Destroy owned values
+        let owned_values: Vec<ValueId> = self.graph.ownership_edges
+            .iter()
+            .filter(|edge| edge.owner == scope_id)
+            .map(|edge| edge.value)
+            .collect();
+
+        for value_id in owned_values {
+            let value = self.graph.values.get_mut(&value_id).unwrap();
+            value.alive = false;
+        }
+
+        self.graph.ownership_edges.retain(|e| e.owner != scope_id);
+        self.scopes.get_mut(&scope_id).unwrap().active = false;
+
+        Ok(())
+    }
+
+    // =====================
+    // VALUE / REGION
+    // =====================
+
     pub fn declare_region(&mut self, kind: RegionKind) -> Result<RegionId, String> {
-        let scope_id = *self.scope_stack
-            .last()
-            .ok_or("Cannot declare region without an active scope")?;
+        let scope_id = self.current_scope();
+        let id = self.next_region_id;
+        self.next_region_id += 1;
 
-        let id = self.fresh_region_id();
-
-        let region = RegionNode {
+        self.graph.regions.insert(id, RegionNode {
             id,
             kind,
             scope: scope_id,
-        };
+        });
 
-        self.graph.regions.insert(id, region);
         Ok(id)
     }
-}
 
-use crate::graph::{ValueNode, ValueOrigin, OwnershipEdge};
-
-impl InterpreterState {
     pub fn allocate_value(&mut self, region: RegionId) -> Result<ValueId, String> {
-        let scope_id = self.effective_owner_scope();
+        let id = self.next_value_id;
+        self.next_value_id += 1;
 
-
-        if !self.graph.regions.contains_key(&region) {
-            return Err("Region does not exist".into());
-        }
-
-        let id = self.fresh_value_id();
-
-        let value = ValueNode {
+        self.graph.values.insert(id, ValueNode {
             id,
             region,
             alive: true,
@@ -174,226 +198,103 @@ impl InterpreterState {
             } else {
                 ValueOrigin::Safe
             },
-        };
+        });
 
-        self.graph.values.insert(id, value);
-
-        // 🔒 Ownership: value belongs to current scope
         self.graph.ownership_edges.push(OwnershipEdge {
             value: id,
-            owner: scope_id,
+            owner: self.current_scope(),
         });
 
         Ok(id)
     }
-}
 
+    // =====================
+    // LIFETIMES (PHASE-BOUND)
+    // =====================
 
-impl InterpreterState {
-    pub fn exit_scope(&mut self) -> Result<(), String> {
-        let scope_id = self.scope_stack.pop()
-            .ok_or("Attempted to exit scope, but no scope is active")?;
+    pub fn create_lifetime(
+        &mut self,
+        scope: ScopeId,
+        phase: PhaseId,
+    ) -> Result<LifetimeId, String> {
+        let id = self.next_lifetime_id;
+        self.next_lifetime_id += 1;
 
-        // 1. Find all values owned by this scope
-        let owned_values = self.values_owned_by_scope(scope_id);
-        // Expire capabilities bound to this scope
-        self.graph.capabilities.retain(|_, cap| cap.scope != scope_id);
-
-
-        // 1. Expire lifetimes bound to this scope
-            for lifetime in self.graph.lifetimes.values_mut() {
-                if lifetime.scope == scope_id {
-                    lifetime.active = false;
-                }
-            }
-
-
-        // 2. Destroy them
-        for value_id in owned_values {
-            let value = self.graph.values.get_mut(&value_id)
-                .ok_or("Owned value not found in graph")?;
-
-            if !value.alive {
-                return Err(format!(
-                    "Value {} already destroyed before scope exit",
-                    value_id
-                ));
-            }
-
-            value.alive = false;
-        }
-
-        // 3. Remove ownership edges for this scope
-        self.graph.ownership_edges.retain(|edge| edge.owner != scope_id);
-
-        // 4. Mark scope inactive
-        if let Some(scope) = self.scopes.get_mut(&scope_id) {
-            scope.active = false;
-        } else {
-            return Err("Scope not found during exit".into());
-        }
-
-        Ok(())
-    }
-}
-
-
-use crate::graph::LifetimeNode;
-
-impl InterpreterState {
-    pub fn create_lifetime(&mut self, scope: ScopeId) -> Result<LifetimeId, String> {
-        // Scope must exist and be active
-        let scope_node = self.scopes.get(&scope)
-            .ok_or("Lifetime bound to non-existent scope")?;
-
-        if !scope_node.active {
-            return Err("Cannot bind lifetime to inactive scope".into());
-        }
-
-        let id = self.fresh_lifetime_id();
-
-        let lifetime = LifetimeNode {
+        self.graph.lifetimes.insert(id, LifetimeNode {
             id,
             scope,
+            phase,
             active: true,
-        };
+        });
 
-        self.graph.lifetimes.insert(id, lifetime);
         Ok(id)
     }
-}
 
+    // =====================
+    // CAPABILITIES (PHASE-BOUND)
+    // =====================
 
-use crate::graph::{CapabilityNode, CapabilityKind};
-
-impl InterpreterState {
     pub fn create_capability(
         &mut self,
         kind: CapabilityKind,
         value: ValueId,
         lifetime: LifetimeId,
+        phase: PhaseId,
     ) -> Result<CapabilityId, String> {
 
-        // Value must exist and be alive
         let value_node = self.graph.values.get(&value)
             .ok_or("Capability refers to non-existent value")?;
-
         if !value_node.alive {
             return Err("Cannot create capability for destroyed value".into());
         }
 
-        // Lifetime must exist and be active
         let lifetime_node = self.graph.lifetimes.get(&lifetime)
             .ok_or("Capability refers to non-existent lifetime")?;
-
         if !lifetime_node.active {
             return Err("Cannot create capability with inactive lifetime".into());
         }
 
-        let scope_id = *self.scope_stack
-            .last()
-            .ok_or("No active scope for capability creation")?;
+        if lifetime_node.phase != phase {
+            return Err(format!(
+                "Lifetime phase violation: lifetime created in phase `{}`, used in phase `{}`",
+                self.phases[lifetime_node.phase].name,
+                self.current_phase_name()
+            ));
+        }
 
-        // 🔒 CONFLICT CHECKING (core rule)
         for cap in self.graph.capabilities.values() {
-            if cap.value == value && cap.lifetime == lifetime {
-                match (&cap.kind, &kind) {
-                    // Any overlap with UniqueMut is illegal
-                    (CapabilityKind::UniqueMut, _) |
-                    (_, CapabilityKind::UniqueMut) => {
-                        return Err(format!(
-                        "Capability conflict on value {}.\n\
-                        Existing capability: {:?} (lifetime {})\n\
-                        Requested capability: {:?}\n\
-                        Rule: UniqueMut requires exclusive access.\n\
-                        Suggested fix: End the existing capability's lifetime or use SharedRead instead.",
-                        value,
-                        cap.kind,
-                        cap.lifetime,
-                        kind
-                    ));
-
-                    }
-                    _ => {}
+            if cap.value == value {
+                if matches!(cap.kind, CapabilityKind::UniqueMut)
+                    || matches!(kind, CapabilityKind::UniqueMut)
+                {
+                    return Err("Capability conflict: UniqueMut requires exclusivity".into());
                 }
             }
         }
 
-        let id = self.fresh_capability_id();
+        let id = self.next_capability_id;
+        self.next_capability_id += 1;
 
-        let capability = CapabilityNode {
+        self.graph.capabilities.insert(id, CapabilityNode {
             id,
             kind,
             value,
             lifetime,
-            scope: scope_id,
-        };
-
-        self.graph.capabilities.insert(id, capability);
-        Ok(id)
-    }
-}
-
-impl InterpreterState {
-    pub fn drop_value(&mut self, value: ValueId) -> Result<(), String> {
-        let scope_id = *self.scope_stack
-            .last()
-            .ok_or("No active scope for drop")?;
-
-        {
-            let value_node = self.graph.values.get(&value)
-                .ok_or("Attempted to drop non-existent value")?;
-
-            if !value_node.alive {
-                return Err("Attempted to drop value that is already destroyed".into());
-            }
-        }
-
-        // Ownership check
-        if !self.is_owned_by_scope(value, scope_id) {
-            return Err("Cannot drop value not owned by current scope".into());
-        }
-
-        // Capability check
-        let has_active_caps = self.graph.capabilities.values().any(|cap| {
-            cap.value == value && cap.scope == scope_id
+            scope: self.current_scope(),
+            phase,
         });
 
-        if has_active_caps {
-            let caps: Vec<String> = self.graph.capabilities.values()
-                .filter(|cap| cap.value == value)
-                .map(|cap| format!("{:?} (lifetime {})", cap.kind, cap.lifetime))
-                .collect();
-
-            return Err(format!(
-                "Cannot drop value {} because active capabilities exist.\n\
-                Rule: A value may only be destroyed after all capabilities expire.\n\
-                Active capabilities: {:?}\n\
-                Suggested fix: End the associated lifetime or allow scope exit to perform destruction.",
-                value,
-                caps
-            ));
-        }
-
-
-        // Destroy value
-        let value_node = self.graph.values.get_mut(&value)
-            .ok_or("Attempted to drop non-existent value")?;
-        value_node.alive = false;
-
-        // Remove ownership edge
-        self.graph.ownership_edges.retain(|edge| edge.value != value);
-
-        Ok(())
+        Ok(id)
     }
-}
 
-use crate::graph::UnsafeAssumptionNode;
+    // =====================
+    // UNSAFE ASSUMPTIONS (PHASE-BOUND)
+    // =====================
 
-impl InterpreterState {
     pub fn add_unsafe_assumption(
         &mut self,
         description: String,
+        phase: PhaseId,
         affected_values: Vec<ValueId>,
     ) -> Result<AssumptionId, String> {
 
@@ -401,18 +302,73 @@ impl InterpreterState {
             return Err("Unsafe assumptions must be declared inside unsafe scope".into());
         }
 
-        let scope_id = *self.scope_stack.last().unwrap();
         let id = self.next_assumption_id;
         self.next_assumption_id += 1;
 
-        let assumption = UnsafeAssumptionNode {
+        self.graph.unsafe_assumptions.insert(id, UnsafeAssumptionNode {
             id,
             description,
-            scope: scope_id,
+            scope: self.current_scope(),
+            phase,
             affected_values,
-        };
+        });
 
-        self.graph.unsafe_assumptions.insert(id, assumption);
         Ok(id)
     }
+
+    // =====================
+    // HELPERS
+    // =====================
+
+    fn is_in_unsafe_scope(&self) -> bool {
+        self.scope_stack.iter().any(|id| {
+            matches!(self.scopes[id].kind, ScopeKind::Unsafe)
+        })
+    }
+
+    pub fn drop_value(&mut self, value: ValueId) -> Result<(), String> {
+    let scope_id = *self.scope_stack
+        .last()
+        .ok_or("No active scope for drop")?;
+
+    {
+        let value_node = self.graph.values.get(&value)
+            .ok_or("Attempted to drop non-existent value")?;
+
+        if !value_node.alive {
+            return Err("Attempted to drop value that is already destroyed".into());
+        }
+    }
+
+    // Ownership check
+    if !self.graph.ownership_edges.iter().any(|e| {
+        e.value == value && e.owner == scope_id
+    }) {
+        return Err("Cannot drop value not owned by current scope".into());
+    }
+
+    // Capability check (regardless of phase)
+    let has_active_caps = self.graph.capabilities.values().any(|cap| {
+        cap.value == value
+    });
+
+    if has_active_caps {
+        return Err(format!(
+            "Cannot drop value {} because active capabilities exist.\n\
+             Rule: A value may only be destroyed after all capabilities expire.",
+            value
+        ));
+    }
+
+    // Destroy value
+    let value_node = self.graph.values.get_mut(&value)
+        .ok_or("Attempted to drop non-existent value")?;
+    value_node.alive = false;
+
+    // Remove ownership edges
+    self.graph.ownership_edges.retain(|edge| edge.value != value);
+
+    Ok(())
+}
+
 }

@@ -28,24 +28,34 @@ pub fn execute(
 ) -> Result<(), String> {
     for node in nodes {
         match node {
-            // ─────────────────────────────
-            // Scopes
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // PHASE DECLARATION (module-level only)
+            // --------------------------------------------------
+            AstNode::PhaseDecl { name } => {
+                state.declare_phase(name.clone())?;
+            }
+
+            // --------------------------------------------------
+            // FUNCTION
+            // --------------------------------------------------
             AstNode::Function { name: _, body } => {
                 state.enter_scope(ScopeKind::Function);
                 execute(body, state, ctx)?;
                 state.exit_scope()?;
             }
 
+            // --------------------------------------------------
+            // UNSAFE BLOCK
+            // --------------------------------------------------
             AstNode::Unsafe { body } => {
                 state.enter_scope(ScopeKind::Unsafe);
                 execute(body, state, ctx)?;
                 state.exit_scope()?;
             }
 
-            // ─────────────────────────────
-            // Region
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // REGION DECLARATION
+            // --------------------------------------------------
             AstNode::Region { kind, name } => {
                 let k = match kind.as_str() {
                     "heap" => RegionKind::Heap,
@@ -59,18 +69,20 @@ pub fn execute(
                 ctx.regions.insert(name.clone(), id);
             }
 
-            // ─────────────────────────────
-            // Lifetime
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // LIFETIME DECLARATION (phase-bound implicitly)
+            // --------------------------------------------------
             AstNode::Lifetime { name, scope: _ } => {
                 let scope_id = state.current_scope();
-                let id = state.create_lifetime(scope_id)?;
+                let phase_id = state.current_phase();
+
+                let id = state.create_lifetime(scope_id, phase_id)?;
                 ctx.lifetimes.insert(name.clone(), id);
             }
 
-            // ─────────────────────────────
-            // Let (value allocation)
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // VALUE ALLOCATION
+            // --------------------------------------------------
             AstNode::Let { name, region } => {
                 let region_id = ctx
                     .regions
@@ -81,9 +93,9 @@ pub fn execute(
                 ctx.values.insert(name.clone(), value_id);
             }
 
-            // ─────────────────────────────
-            // Capability
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // CAPABILITY GRANT (phase-enforced)
+            // --------------------------------------------------
             AstNode::Capability {
                 kind,
                 value,
@@ -106,12 +118,19 @@ pub fn execute(
                     .get(lifetime)
                     .ok_or(format!("Unknown lifetime: {}", lifetime))?;
 
-                state.create_capability(cap_kind, *value_id, *lifetime_id)?;
+                let phase_id = state.current_phase();
+
+                state.create_capability(
+                    cap_kind,
+                    *value_id,
+                    *lifetime_id,
+                    phase_id,
+                )?;
             }
 
-            // ─────────────────────────────
-            // Drop
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // DROP VALUE (capability + phase checked internally)
+            // --------------------------------------------------
             AstNode::Drop { value } => {
                 let value_id = ctx
                     .values
@@ -121,12 +140,18 @@ pub fn execute(
                 state.drop_value(*value_id)?;
             }
 
-            // ─────────────────────────────
-            // Unsafe assumption
-            // ─────────────────────────────
+            // --------------------------------------------------
+            // UNSAFE ASSUMPTION (phase-bound)
+            // --------------------------------------------------
             AstNode::Assume { text } => {
                 let affected: Vec<u64> = ctx.values.values().copied().collect();
-                state.add_unsafe_assumption(text.clone(), affected)?;
+                let phase_id = state.current_phase();
+
+                state.add_unsafe_assumption(
+                    text.clone(),
+                    phase_id,
+                    affected,
+                )?;
             }
         }
     }
