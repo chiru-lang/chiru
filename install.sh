@@ -23,14 +23,22 @@ TARBALL="chiru-${VERSION}-${OS}-${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
 
 INSTALL_DIR="${HOME}/.local/bin"
-mkdir -p "$INSTALL_DIR"
+TMP_DIR="$(mktemp -d)"
 
 echo "Downloading $URL"
-curl -fsSL "$URL" | tar -xz
+curl -fsSL "$URL" -o "$TMP_DIR/chiru.tar.gz"
+
+echo "Extracting..."
+tar -xzf "$TMP_DIR/chiru.tar.gz" -C "$TMP_DIR"
 
 echo "Installing chiru to $INSTALL_DIR"
-mv dist/chiru-${VERSION}-${OS}-${ARCH}/chiru "${INSTALL_DIR}/chiru"
-chmod +x "${INSTALL_DIR}/chiru"
+mkdir -p "$INSTALL_DIR"
+mv "$TMP_DIR"/dist/chiru-${VERSION}-${OS}-${ARCH}/chiru "$INSTALL_DIR/chiru"
+chmod +x "$INSTALL_DIR/chiru"
 
-echo "Installed: $(chiru --version)"
-echo "Ensure ~/.local/bin is in your PATH"
+echo ""
+echo "Chiru installed successfully."
+echo "Binary location: $INSTALL_DIR/chiru"
+echo ""
+echo "If this is your first install, ensure ~/.local/bin is in your PATH:"
+echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
