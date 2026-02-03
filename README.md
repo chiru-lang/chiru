@@ -2,38 +2,48 @@ Chiru
 
 A verification-first systems language for the AI era.
 
-Chiru is a systems programming language designed to make low-level code explicit, inspectable, and trustworthy — especially when that code is written or assisted by AI.
+Chiru is a systems programming language designed to make low-level code explicit, inspectable, and trustworthy — especially when code is written or assisted by AI.
 
 Chiru does not replace Rust, C, or C++.
 It is designed to live beside them as a verification and trust layer.
 
-Why Chiru Exists
+TL;DR
 
-Systems programming is entering a new phase:
+🔍 Chiru makes intent explicit
 
-AI can generate low-level code
+🧠 Chiru produces human-readable safety proofs
 
-Humans struggle to fully trust AI-generated systems code
+🤖 Chiru is designed for AI–human collaboration
 
-Existing languages rely heavily on inference and implicit rules
+⚙️ Chiru targets systems-level code
 
-Safety is often assumed, not inspectable
+🧪 Chiru is experimental but real
 
-Chiru addresses a different problem:
+Why Chiru?
 
-How do humans verify and trust systems code at scale — especially when AI is involved?
+Modern systems programming faces a new trust problem:
 
-Chiru’s answer is simple and strict:
+AI can generate systems code
 
-Intent must be explicit
+Humans struggle to fully audit it
 
-Correctness must be inspectable
+Existing languages rely heavily on inference
 
-Safety must be visible
+Safety is often assumed, not inspected
 
-Unsafe behavior must be declared and auditable
+Chiru exists to answer one question:
 
-Chiru optimizes for trust at scale, not convenience.
+How do we trust systems code at scale — especially when AI is involved?
+
+Chiru’s answer:
+
+Make intent explicit
+
+Make safety visible
+
+Make verification inspectable
+
+Make unsafe behavior auditable
 
 What Chiru Is (and Is Not)
 Chiru is
@@ -46,9 +56,7 @@ Explicit about ownership, lifetimes, and capabilities
 
 Deterministic (no garbage collection)
 
-Designed for AI-human collaboration
-
-Suitable for safety-critical and infrastructure code
+Designed for safety-critical and infrastructure code
 
 Chiru is not
 
@@ -60,30 +68,27 @@ A replacement for Rust, C, or C++
 
 A macro-heavy or inference-heavy language
 
-A syntax experiment
-
 Chiru is intentionally small, strict, and focused.
 
-Core Principles
+Core Ideas (At a Glance)
 
-Chiru follows these principles strictly:
+Chiru makes the following first-class and explicit:
 
-Explicit > Implicit
+Ownership — who owns memory
 
-Verifiable > Convenient
+Lifetimes — how long values are valid
 
-Predictable > Powerful
+Capabilities — how values may be accessed
 
-Simple rules > Many rules
+Destruction — when values are destroyed
 
-Trust > Popularity
+Unsafe assumptions — what humans promise is true
 
-Composability > Completeness
+Nothing important is implicit.
 
-If a feature reduces auditability or increases ambiguity, Chiru rejects it.
+Example
 
-A Small Example
-function process_payment {
+    function process_payment {
 
     lifetime payment_request bound to process_payment
 
@@ -94,189 +99,146 @@ function process_payment {
     }
 
     capability SharedRead payment_key during payment_request
-}
 
-What this expresses:
+    }
 
-Memory origin is explicit
 
-Lifetimes are declared
+This code explicitly states:
 
-Capabilities define how values may be accessed
+where memory comes from
 
-Unsafe assumptions are named and auditable
+how long it lives
 
-Nothing is inferred silently
+how it may be accessed
 
-Safety Report (Human-Readable)
+what unsafe assumptions are being made
 
-Every Chiru program produces a safety report.
+Safety Reports
 
+Every Chiru program produces a Safety Report.
+
+Human-Readable
 Chiru Safety Report
 ==================
-
-Summary
--------
-
-Ownership:     VERIFIED
-Lifetimes:     VERIFIED
-Capabilities:  VERIFIED
-Destruction:   VERIFIED
+    Ownership:     VERIFIED   
+    Lifetimes:     VERIFIED
+    Capabilities:  VERIFIED
+    Destruction:   VERIFIED
 
 Unsafe Assumptions
 ------------------
-
-[UA-001] HSM returned a valid memory pointer
-  Scope: 2
-  Affects: []
-
-Values
-------
-
-1: UNSAFE (DESTROYED)
+    [UA-001] HSM returned a valid memory pointer
 
 Verdict
 -------
-
 SAFE_IF_ASSUMPTIONS_HOLD
 
-Safety Report (Machine-Readable / CI)
-{
-  "verdict": "SAFE_IF_ASSUMPTIONS_HOLD",
-  "summary": {
-    "ownership": "VERIFIED",
-    "lifetimes": "VERIFIED",
-    "capabilities": "VERIFIED",
-    "destruction": "VERIFIED"
-  }
-}
+    Machine-Readable (CI / Automation)
+    {
+      "verdict": "SAFE_IF_ASSUMPTIONS_HOLD"
+    }
 
 Exit Codes
-Exit Code Meaning
-0 SAFE
-1 SAFE_IF_ASSUMPTIONS_HOLD
-2 UNSAFE
-3 Parse / usage / IO error
+    
+    Code	Meaning
+    0	SAFE
+    1	SAFE_IF_ASSUMPTIONS_HOLD
+    2	UNSAFE
+    3	Parse / usage / IO error
+    
+Installation
+Linux (x86_64)
 
-This makes Chiru CI-friendly by design.
+    curl -fsSL https://raw.githubusercontent.com/chiru-lang/chiru/main/install.sh | sh
+
+Verify:
+
+chiru --version
 
 Platform Support
-Prebuilt Binaries
+Platform	Status
+Linux x86_64	✅ Prebuilt binary
+macOS (arm64 / x86_64)	⏳ Build from source
+Windows x86_64	⏳ Build from source
 
-Linux (x86_64): ✅ Officially supported
+Native macOS and Windows binaries are planned for v0.1.1.
 
 Build from Source
 
-macOS (arm64 / x86_64): ⏳ Build from source
+Chiru is written in Rust.
 
-Windows (x86_64): ⏳ Build from source
+    git clone https://github.com/chiru-lang/chiru.git
+    cd chiru
+    cargo build --release
 
-Native binaries for macOS and Windows are planned for v0.1.1.
+Binary location:
 
-Installation (Linux)
-curl -fsSL <https://raw.githubusercontent.com/chiru-lang/chiru/main/install.sh> | sh
-
-After installation:
-
-chiru --version
-chiru examples/payment.chiru
-
-If this is your first install, ensure ~/.local/bin is in your PATH.
-
-Building from Source
-
-Chiru is written in Rust and can be built on any platform supported by the Rust toolchain.
-
-Requirements
-
-Rust 1.70+ (stable)
-
-Git
-
-Build
-git clone <https://github.com/chiru-lang/chiru.git>
-cd chiru
-cargo build --release
-
-The resulting binary will be available at:
-
-target/release/chiru
-
-You may place it anywhere in your PATH.
+    target/release/chiru
 
 Where Chiru Fits
 
-Chiru is designed to be used inside larger systems, not to replace them.
+Chiru is meant to be used inside larger systems, not to replace them.
 
 Typical use cases:
 
-Verifying AI-generated C or Rust FFI code
+Verifying AI-generated C / Rust code
 
-Auditing unsafe boundaries
+Auditing unsafe FFI boundaries
 
 Embedded and firmware verification
 
-Security-critical modules (payments, crypto, HSMs)
-
-Compliance and infrastructure trust checks
+Payments, crypto, HSM, security modules
 
 CI safety gates for systems code
 
-Example project layout:
+Example layout:
 
-project/
-├── src/        # Rust / C / C++ code
-├── chiru/
-│   ├── payment.chiru
-│   └── dma_buffer.chiru
-└── ci/
+    project/
+    ├── src/        # Rust / C / C++ code
+    ├── chiru/
+    │   ├── payment.chiru
+    │   └── buffer.chiru
+    └── ci/
 
 Project Status
 
-Chiru v0.1.0
+Version: v0.1.0
+Status: Experimental but real
 
-Semantic core complete
+Core semantics implemented
 
-Interpreter and verifier implemented
+Interpreter and verifier working
 
 Safety reports (human + JSON)
 
-Stable CLI (check, --help, --version)
+Stable CLI
 
-Linux binary + installer available
-
-Chiru is experimental but real.
+Linux binary available
 
 Roadmap
 
 Planned for v0.1.1:
 
-macOS binaries (arm64 + x86_64)
-
-Windows x86_64 binary
+    macOS binaries
+    Windows binaries
 
 Incremental CLI improvements
 
 Policy-driven safety checks
 
-Chiru will grow slowly and deliberately.
+Chiru will evolve slowly and deliberately.
 
-Name Policy
+Name & License
+
+License: MIT
+
+Name policy: See NAME_POLICY.md
 
 The name “Chiru” refers to the official language and tooling maintained by
 the chiru-lang organization.
 
-Forks and derivative works must use a different name and must not imply they
-are the official Chiru project.
-
-See NAME_POLICY.md for details.
-
-License
-
-Chiru is licensed under the MIT License.
-
-Final Note
+Philosophy (Final Word)
 
 Chiru is defined as much by what it refuses to do as by what it allows.
 
-If something reduces trust, Chiru says no.
+If something reduces trust or auditability, Chiru says no.
