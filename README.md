@@ -141,10 +141,10 @@ SAFE_IF_ASSUMPTIONS_HOLD
 Exit Codes
     
     Code	Meaning
-    0	SAFE
-    1	SAFE_IF_ASSUMPTIONS_HOLD
-    2	UNSAFE
-    3	Parse / usage / IO error
+    0    	SAFE
+    1	    SAFE_IF_ASSUMPTIONS_HOLD
+    2	    UNSAFE
+    3	    Parse / usage / IO error
     
 Installation
 Linux (x86_64)
@@ -242,3 +242,4 @@ Philosophy (Final Word)
 Chiru is defined as much by what it refuses to do as by what it allows.
 
 If something reduces trust or auditability, Chiru says no.
+
