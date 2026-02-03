@@ -1,0 +1,16 @@
+phase init
+
+function payment_hsm {
+
+  lifetime key_life bound to payment_hsm
+
+  region external hsm_memory
+
+  let payment_key in hsm_memory
+
+  unsafe {
+    assume "HSM returned a valid, exclusive memory region for key initialization"
+  }
+
+  capability UniqueMut payment_key during key_life
+}
