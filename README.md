@@ -19,6 +19,26 @@ TL;DR
 
 🧪 Chiru is experimental but real
 
+---------------
+
+## Documentation
+
+📘 **The Chiru Book**  
+https://chiru-lang.org/docs
+
+The Chiru Book is the canonical documentation for the language.
+It explains:
+
+- Why Chiru exists
+- Core concepts (lifetimes, capabilities, regions, unsafe)
+- Real-world verified examples
+- Practical workflows (CI, AI-generated code)
+- Current project status and roadmap
+
+If you want to understand Chiru deeply, start with the book.
+
+---------------
+
 Why Chiru?
 
 Modern systems programming faces a new trust problem:
@@ -242,4 +262,5 @@ Philosophy (Final Word)
 Chiru is defined as much by what it refuses to do as by what it allows.
 
 If something reduces trust or auditability, Chiru says no.
+
 
