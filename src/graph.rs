@@ -44,6 +44,7 @@ pub struct LifetimeNode {
     pub id: LifetimeId,
     pub scope: ScopeId,
     pub active: bool,
+    pub(crate) phase: usize,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ pub struct CapabilityNode {
     pub value: ValueId,
     pub lifetime: LifetimeId,
     pub scope: ScopeId,
+    pub(crate) phase: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,6 +74,7 @@ pub struct UnsafeAssumptionNode {
     pub description: String,
     pub scope: ScopeId,
     pub affected_values: Vec<ValueId>,
+    pub(crate) phase: usize,
 }
 #[derive(Debug)]
 pub struct OwnershipEdge {

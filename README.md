@@ -140,10 +140,18 @@ Every Chiru program produces a Safety Report.
 Human-Readable
 Chiru Safety Report
 ==================
+HEAD
     Ownership:     VERIFIED   
     Lifetimes:     VERIFIED
     Capabilities:  VERIFIED
     Destruction:   VERIFIED
+
+Summary
+
+Ownership:     VERIFIED
+Lifetimes:     VERIFIED
+Capabilities:  VERIFIED
+Destruction:   VERIFIED
 
 Unsafe Assumptions
 ------------------
